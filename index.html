@@ -75,7 +75,6 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* AI 諮詢框樣式 */
         .ai-bubble {
             background: #fff;
             border: 2px solid #fbcfe8;
@@ -87,7 +86,7 @@
             color: #4b5563;
             text-align: left;
             line-height: 1.6;
-            max-height: 150px;
+            max-height: 200px;
             overflow-y: auto;
         }
     </style>
@@ -108,7 +107,7 @@
         </div>
     </div>
 
-    <!-- 中獎結果彈窗 -->
+    <!-- 中獎結果彈窗 (含 AI 顧問) -->
     <div id="prize-modal" class="fixed inset-0 bg-black/70 z-[150] hidden items-center justify-center p-6 backdrop-blur-md">
         <div class="bg-white rounded-[2.5rem] p-8 max-w-xs w-full text-center shadow-2xl">
             <div id="prize-icon" class="text-6xl mb-4">🎁</div>
@@ -120,11 +119,10 @@
                 <p id="modal-prize-exp" class="text-[11px] text-rose-500 font-bold"></p>
             </div>
 
-            <!-- AI 諮詢區域 -->
             <div id="ai-consultant-section" class="hidden">
-                <div id="ai-loading" class="flex items-center justify-center py-4 hidden">
-                    <div class="loading-spinner !w-6 !h-6"></div>
-                    <span class="ml-2 text-xs text-pink-400">AI 顧問思考中...</span>
+                <div id="ai-loading" class="flex flex-col items-center justify-center py-4 hidden">
+                    <div class="loading-spinner !w-6 !h-6 mb-2"></div>
+                    <span class="text-[10px] text-pink-400 font-bold">顧問規劃建議中...</span>
                 </div>
                 <div id="ai-response" class="ai-bubble hidden"></div>
             </div>
@@ -140,8 +138,7 @@
         </div>
     </div>
 
-    <!-- 其他彈窗 (管理員、訊息、兌換確認) 略，與原版一致 -->
-    <!-- [此處省略部分重複的彈窗 HTML 代碼以節省空間，功能保留] -->
+    <!-- 管理員驗證彈窗 -->
     <div id="admin-modal" class="fixed inset-0 bg-black/80 z-[120] hidden items-center justify-center p-6 backdrop-blur-md">
         <div class="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center shadow-2xl">
             <h3 class="text-xl font-black text-gray-800 mb-4">管理員驗證</h3>
@@ -153,6 +150,7 @@
         </div>
     </div>
 
+    <!-- 通用訊息彈窗 -->
     <div id="msg-modal" class="fixed inset-0 bg-black/40 z-[150] hidden items-center justify-center p-6 backdrop-blur-sm">
         <div class="bg-white rounded-3xl p-6 max-w-xs w-full text-center shadow-2xl">
             <p id="msg-text" class="text-gray-800 font-bold mb-6"></p>
@@ -160,6 +158,7 @@
         </div>
     </div>
 
+    <!-- 兌換確認彈窗 -->
     <div id="redeem-confirm-modal" class="fixed inset-0 bg-black/60 z-[110] hidden items-center justify-center p-6 backdrop-blur-sm">
         <div class="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center shadow-2xl">
             <div class="w-16 h-16 bg-pink-50 text-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">🎫</div>
@@ -226,9 +225,21 @@
         </div>
 
         <!-- 紀錄頁面 -->
-        <div id="page-history" class="hidden flex-1 flex flex-col">
-            <h2 class="text-lg font-black text-gray-800 mb-4">我的獎項紀錄</h2>
-            <div id="history-list" class="flex-1 overflow-y-auto space-y-4 pr-1"></div>
+        <div id="page-history" class="hidden flex-1 flex flex-col overflow-hidden">
+            <h2 class="text-lg font-black text-gray-800 mb-2">我的獎項紀錄</h2>
+            
+            <div class="flex gap-2 mb-4">
+                <div class="flex-1 bg-emerald-50 border border-emerald-100 rounded-xl p-2 text-center">
+                    <div id="count-valid" class="text-emerald-600 font-black text-lg leading-tight">0</div>
+                    <div class="text-[9px] text-emerald-500 font-bold uppercase">有效/未使用</div>
+                </div>
+                <div class="flex-1 bg-gray-50 border border-gray-100 rounded-xl p-2 text-center">
+                    <div id="count-invalid" class="text-gray-400 font-black text-lg leading-tight">0</div>
+                    <div class="text-[9px] text-gray-400 font-bold uppercase">過期/已使用</div>
+                </div>
+            </div>
+
+            <div id="history-list" class="flex-1 overflow-y-auto space-y-6 pr-1"></div>
         </div>
 
         <!-- 底部資訊 -->
@@ -245,8 +256,8 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
-        // Gemini API Config
-        const apiKey = ""; // Runtime provides key
+        // Gemini API Configuration
+        const apiKey = ""; // Runtime provides this
         const geminiModel = "gemini-2.5-flash-preview-09-2025";
 
         // Firebase 配置
@@ -288,7 +299,7 @@
         let currentRotation = 0;
         let lastPrizeName = "";
 
-        // --- Gemini AI Function ---
+        // --- Optimized Gemini AI Function with Exponential Backoff ---
         window.getBeautyAdvice = async function() {
             if (!lastPrizeName) return;
 
@@ -301,37 +312,45 @@
             aiLoading.classList.remove('hidden');
             aiResponse.classList.add('hidden');
             askBtn.disabled = true;
-            askBtn.classList.add('opacity-50');
 
-            const prompt = `使用者在 Corin Beauty 的轉盤中抽中了「${lastPrizeName}」。作為一位專業的美顏顧問，請用親切、溫柔且專業的語氣（約 100 字內），解釋這個獎項或療程對她的好處，並給予一個相關的美容日常小建議。`;
-            const systemPrompt = "你是一位 Corin Beauty 的資深美顏顧問。你說話得體、溫柔，致力於讓每位顧客感到被重視和呵護。";
+            const systemPrompt = "你是一位 Corin Beauty 的專業美顏顧問。說話親切、專業、充滿熱情。請針對中獎獎項，提供 100 字內的專業療程解說與日常保養建議。";
+            const userQuery = `我抽中了「${lastPrizeName}」，請給我一些專業的建議與療程說明。`;
 
-            const callWithRetry = async (retries = 5, backoff = 1000) => {
-                try {
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: prompt }] }],
-                            systemInstruction: { parts: [{ text: systemPrompt }] }
-                        })
-                    });
-                    if (!response.ok) throw new Error('API Error');
-                    const data = await response.json();
-                    return data.candidates?.[0]?.content?.parts?.[0]?.text;
-                } catch (err) {
-                    if (retries <= 0) throw err;
-                    await new Promise(r => setTimeout(r, backoff));
-                    return callWithRetry(retries - 1, backoff * 2);
+            const callWithRetry = async (retries = 5) => {
+                let delay = 1000;
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: userQuery }] }],
+                                systemInstruction: { parts: [{ text: systemPrompt }] }
+                            })
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            return data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        }
+                    } catch (err) {
+                        // Silent fail for retry
+                    }
+                    
+                    if (i < retries - 1) {
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2; // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                    }
                 }
+                throw new Error("Connection failed after retries");
             };
 
             try {
-                const result = await callWithRetry();
-                aiResponse.innerText = result || "顧問目前休息中，請稍後再試。";
+                const advice = await callWithRetry();
+                aiResponse.innerText = advice || "顧問目前正忙，請稍後再試。";
                 aiResponse.classList.remove('hidden');
             } catch (e) {
-                aiResponse.innerText = "連線發生錯誤，請稍後再詢問顧問。";
+                aiResponse.innerText = "連線顧問時發生錯誤，請確認網路穩定或重新整理頁面。";
                 aiResponse.classList.remove('hidden');
             } finally {
                 aiLoading.classList.add('hidden');
@@ -466,16 +485,14 @@
 
             state.prizes.push(win);
             state.count++;
-            lastPrizeName = prize.name; // Save for AI
+            lastPrizeName = prize.name;
             saveData();
             updateUI();
 
-            // Reset AI Section
             document.getElementById('ai-consultant-section').classList.add('hidden');
             document.getElementById('ai-response').classList.add('hidden');
             const askBtn = document.getElementById('btn-ask-ai');
             askBtn.disabled = false;
-            askBtn.classList.remove('opacity-50');
 
             document.getElementById('modal-prize-name').innerText = win.name;
             document.getElementById('modal-prize-id').innerText = `核銷序號: ${win.id}`;
@@ -536,30 +553,52 @@
             list.innerHTML = '';
             const now = Date.now();
 
+            const validPrizes = state.prizes.filter(p => !p.isRedeemed && now <= p.expDate);
+            const invalidPrizes = state.prizes.filter(p => p.isRedeemed || now > p.expDate);
+
+            document.getElementById('count-valid').innerText = validPrizes.length;
+            document.getElementById('count-invalid').innerText = invalidPrizes.length;
+
             if(state.prizes.length === 0) {
                 list.innerHTML = '<div class="py-12 text-center text-gray-400 text-sm">尚未有中獎紀錄</div>';
                 return;
             }
 
-            [...state.prizes].reverse().forEach(p => {
-                const isExpired = now > p.expDate && !p.isRedeemed;
-                const card = document.createElement('div');
-                card.className = `p-4 rounded-2xl border transition-all ${p.isRedeemed || isExpired ? 'bg-gray-50 border-gray-100 opacity-60' : 'bg-white border-pink-100 shadow-sm'}`;
-                card.innerHTML = `
-                    <div class="flex justify-between items-start mb-1">
-                        <span class="text-[9px] text-gray-400 font-mono">ID: ${p.id}</span>
-                        <span class="text-[10px] font-bold ${p.isRedeemed ? 'text-gray-400' : (isExpired ? 'text-rose-400' : 'text-emerald-500')}">
-                            ${p.isRedeemed ? '已兌換' : (isExpired ? '已逾期' : '待使用')}
-                        </span>
-                    </div>
-                    <div class="font-bold text-gray-800 text-sm mb-2">${p.name}</div>
-                    <div class="flex justify-between items-end">
-                        <span class="text-[9px] text-gray-400">有效至: ${new Date(p.expDate).toLocaleDateString()}</span>
-                        ${(!p.isRedeemed && !isExpired) ? `<button onclick="redeem('${p.id}')" class="px-4 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-bold shadow-md active:scale-95">兌換</button>` : ''}
-                    </div>
-                `;
-                list.appendChild(card);
-            });
+            if (validPrizes.length > 0) {
+                const validSection = document.createElement('div');
+                validSection.innerHTML = `<div class="flex items-center gap-2 mb-3"><div class="h-4 w-1 bg-pink-500 rounded-full"></div><h3 class="text-xs font-black text-gray-800 uppercase tracking-widest">可用獎項</h3></div>`;
+                [...validPrizes].reverse().forEach(p => validSection.appendChild(createPrizeCard(p, false)));
+                list.appendChild(validSection);
+            }
+
+            if (invalidPrizes.length > 0) {
+                const invalidSection = document.createElement('div');
+                invalidSection.className = "mt-8";
+                invalidSection.innerHTML = `<div class="flex items-center gap-2 mb-3"><div class="h-4 w-1 bg-gray-300 rounded-full"></div><h3 class="text-xs font-black text-gray-400 uppercase tracking-widest">歷史紀錄</h3></div>`;
+                [...invalidPrizes].reverse().forEach(p => invalidSection.appendChild(createPrizeCard(p, true)));
+                list.appendChild(invalidSection);
+            }
+        }
+
+        function createPrizeCard(p, isInvalid) {
+            const now = Date.now();
+            const isExpired = now > p.expDate && !p.isRedeemed;
+            const card = document.createElement('div');
+            card.className = `p-4 rounded-2xl border mb-3 transition-all ${isInvalid ? 'bg-gray-50 border-gray-100 opacity-60' : 'bg-white border-pink-100 shadow-sm'}`;
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-1">
+                    <span class="text-[9px] text-gray-400 font-mono">ID: ${p.id}</span>
+                    <span class="text-[10px] font-bold ${p.isRedeemed ? 'text-gray-400' : (isExpired ? 'text-rose-400' : 'text-emerald-500')}">
+                        ${p.isRedeemed ? '已使用' : (isExpired ? '已逾期' : '有效')}
+                    </span>
+                </div>
+                <div class="font-bold text-gray-800 text-sm mb-2">${p.name}</div>
+                <div class="flex justify-between items-end">
+                    <span class="text-[9px] text-gray-400">有效至: ${new Date(p.expDate).toLocaleDateString()}</span>
+                    ${(!p.isRedeemed && !isExpired) ? `<button onclick="redeem('${p.id}')" class="px-4 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-bold shadow-md active:scale-95">兌換</button>` : ''}
+                </div>
+            `;
+            return card;
         }
 
         window.redeem = function(id) {
